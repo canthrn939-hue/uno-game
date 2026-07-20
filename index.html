@@ -7,22 +7,26 @@
     <script src="/socket.io/socket.io.js"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1e272e; color: white; text-align: center; margin: 0; padding: 15px; }
-        .card-box { background: #2f3640; color: white; padding: 20px; border-radius: 12px; display: inline-block; width: 360px; margin-top: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
-        input, select, button { width: 85%; padding: 12px; margin: 8px 0; border-radius: 6px; border: none; font-size: 16px; font-weight: bold; }
+        .card-box { background: #2f3640; color: white; padding: 20px; border-radius: 12px; display: inline-block; width: 380px; margin-top: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); vertical-align: top; }
+        input, select, button { width: 85%; padding: 10px; margin: 6px 0; border-radius: 6px; border: none; font-size: 15px; font-weight: bold; }
         button { background: #e74c3c; color: white; cursor: pointer; transition: 0.2s; }
         button:hover { background: #c0392b; transform: scale(1.02); }
         
-        .rules-box { background: #353b48; text-align: left; padding: 12px; border-radius: 8px; font-size: 12px; max-height: 200px; overflow-y: auto; margin: 10px 0; border: 1px solid #718093; line-height: 1.5; }
-        .uno-card { display: inline-block; width: 65px; height: 95px; line-height: 95px; margin: 4px; border-radius: 8px; font-weight: bold; font-size: 18px; color: white; border: 2px solid white; cursor: pointer; box-shadow: 2px 4px 6px rgba(0,0,0,0.4); text-align: center; }
+        .rules-box { background: #353b48; text-align: left; padding: 10px; border-radius: 8px; font-size: 12px; max-height: 180px; overflow-y: auto; margin: 10px 0; border: 1px solid #718093; line-height: 1.4; }
+        .uno-card { display: inline-block; width: 60px; height: 90px; line-height: 90px; margin: 4px; border-radius: 8px; font-weight: bold; font-size: 16px; color: white; border: 2px solid white; cursor: pointer; box-shadow: 2px 4px 6px rgba(0,0,0,0.4); text-align: center; }
         .uno-card.selected { border: 4px solid #f1c40f; transform: translateY(-10px); }
         .red { background: #e74c3c; } .yellow { background: #f1c40f; color: black; } .green { background: #2ecc71; } .blue { background: #3498db; } .black { background: #2d3436; }
         
         .overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 999; justify-content: center; align-items: center; flex-direction: column; }
-        .btn-uno { width: 180px; height: 180px; border-radius: 50%; font-size: 28px; background: #f1c40f; color: black; animation: pulse 0.4s infinite alternate; }
+        .btn-uno { width: 160px; height: 160px; border-radius: 50%; font-size: 24px; background: #f1c40f; color: black; animation: pulse 0.4s infinite alternate; }
         @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.1); } }
-        .timer-badge { background: #e74c3c; padding: 5px 15px; border-radius: 20px; font-size: 20px; font-weight: bold; display: inline-block; margin-bottom: 10px; }
+        .timer-badge { background: #e74c3c; padding: 5px 15px; border-radius: 20px; font-size: 18px; font-weight: bold; display: inline-block; margin-bottom: 10px; }
         
-        /* สไตล์หน้าสรุปจบเกม */
+        /* แชตและสติกเกอร์ */
+        #chatBox { background: #2f3640; border-radius: 10px; padding: 10px; width: 340px; margin: 10px auto; text-align: left; }
+        #chatMessages { height: 120px; overflow-y: auto; background: #1e272e; padding: 8px; border-radius: 5px; font-size: 13px; margin-bottom: 8px; }
+        .sticker-btn { width: auto; padding: 5px 10px; font-size: 18px; margin: 2px; background: #353b48; }
+
         .other-hand { background: #353b48; margin: 5px; padding: 10px; border-radius: 8px; text-align: left; }
     </style>
 </head>
@@ -49,21 +53,27 @@
     <div id="roomView" class="card-box" style="display:none;">
         <h2>ห้อง: <span id="displayRoomId" style="color:#f1c40f;"></span></h2>
         
-        <div class="rules-box">
-            <b>📜 กติกาซูเปอร์ป่วน:</b><br>
-            1. แจกไพ่สุ่มคนละ 10 ใบ (ถือเกิน 25 ใบ = <b>แพ้ทันที!</b>)<br>
-            2. <b>บวกทับสะสมโทษ:</b> +2 และ +4 ลงทับกันได้เรื่อยๆ<br>
-            3. <b>การถามบลัฟ:</b> เมื่อโดนบวก ถ้าระบบถามแล้วโกหก = <b>โดน +14 ใบ!</b><br>
-            4. <b>เวลาเดินตา:</b> มีเวลา 20 วิ ถ้าช้าโดนทำโทษ <b>+6 ใบ</b><br>
-            5. <b>ไพ่เลขเหมือน:</b> สีต่างกันหรือเหมือนกันถ้าเลขตรงกัน ลงพร้อมกันได้<br>
-            6. <b>ปุ่ม UNO / UNO WIN:</b> ขึ้นให้กดใน 5 วิ ถ้ากดไม่ทันโดนทำโทษ +4 / +8 ใบ<br>
-            7. 🎲 <b>ดวลไว:</b> ครบ 5 ตา แย่งกันกด ใครช้าสุดจั่ว +2<br>
-            8. 💣 <b>ไพ่ระเบิด:</b> ถือเกิน 30 วิ ระเบิดใส่ตัวจั่ว +4
+        <!-- เปลี่ยนชื่อในห้องรอ -->
+        <div style="background:#1e272e; padding:8px; border-radius:6px; margin-bottom:10px;">
+            <label style="font-size:12px;">✏️ เปลี่ยนชื่อของคุณ:</label>
+            <input type="text" id="renameInput" placeholder="ชื่อใหม่..." style="width:60%; padding:6px;">
+            <button onclick="changeName()" style="width:25%; padding:6px; background:#3498db;">เปลี่ยน</button>
         </div>
 
-        <div id="hostSettings" style="display:none; background:#1e272e; padding:10px; border-radius:8px; margin:10px 0;">
+        <div class="rules-box">
+            <b>📜 กติกาซูเปอร์ป่วน (ฉบับปรับปรุง):</b><br>
+            1. <b>การจั่วไพ่:</b> หากมีไพ่ลงได้ จะเลือกลงหรือจั่วก็ได้ แต่ถ้าไม่มีไพ่ลง <b>ต้องกดจั่ว 1 ใบ</b> ถึงจะข้ามตาได้<br>
+            2. 💣 <b>ไพ่ระเบิด (4 คนขึ้นไป):</b> เมื่อมีคนลงไพ่ระเบิด ผู้เล่นทุกคนต้องแข่งกันกดปุ่ม! <b>ใครช้าสุดเอาไปเลย (+4 ใบ)</b><br>
+            3. 💥 <b>สะสมโทษระเบิด:</b> ไพ่ระเบิดสะสมกับ +2/+4 ได้! คนกดช้าสุดจะโดน <b>[โทษสะสม + 4 ใบ]</b><br>
+            4. 🚫 <b>ถือเกิน 25 ใบ:</b> แพ้และออกจากเกมทันที! (หากเหลือ 2 คน อีกฝ่ายชนะทันที)<br>
+            5. ⏳ <b>เวลาเดินตา:</b> 40 วินาที ช้าโดนจั่ว <b>+6 ใบ</b><br>
+            6. 🎭 <b>การถามบลัฟ:</b> ตอบโกหกตอนโดนบวก = <b>+14 ใบ!</b><br>
+            7. 🃏 <b>ไพ่เลขเหมือน:</b> ลงพร้อมกันได้กี่ใบก็ได้
+        </div>
+
+        <div id="hostSettings" style="display:none; background:#1e272e; padding:8px; border-radius:8px; margin:10px 0;">
             <label>จำนวนผู้ชนะในเกมนี้ (คน):</label>
-            <input type="number" id="winnerTarget" value="1" min="1" max="10" style="width:50%;">
+            <input type="number" id="winnerTarget" value="1" min="1" max="10" style="width:40%;">
         </div>
 
         <h4>ผู้เล่นในห้อง (<span id="playerCount">0</span>):</h4>
@@ -75,8 +85,7 @@
 
     <!-- 3. หน้ากระดานเกม -->
     <div id="gameArea" style="display:none;">
-        <div class="timer-badge">⏳ เวลาในตาของคุณ: <span id="turnTimer">20</span>s</div>
-        <div id="bombTimer" style="color:#ff3838; font-weight:bold; display:none;">💣 คุณมีไพ่ระเบิด! เหลือเวลา <span id="timerSec">30</span>s</div>
+        <div class="timer-badge">⏳ เวลาในตาของคุณ: <span id="turnTimer">40</span>s</div>
         
         <div style="background:#0097e6; padding:15px; border-radius:10px; max-width:500px; margin:auto;">
             <h3>ไพ่กลางโต๊ะ (สะสมโทษ: <span id="stackPenalty" style="color:#ff4757; font-size:24px;">0</span> ใบ)</h3>
@@ -89,7 +98,28 @@
         <div id="myHand"></div>
         <br>
         <button onclick="playSelectedCards()" style="width:auto; padding:10px 20px; background:#2ecc71;">🃏 ลงไพ่ที่เลือก</button>
-        <button onclick="drawCard()" style="width:auto; padding:10px 20px; background:#e67e22;">📥 จั่วไพ่</button>
+        <button onclick="drawCard()" style="width:auto; padding:10px 20px; background:#e67e22;">📥 จั่วไพ่ (ไม่มีไพ่ต้องจั่วก่อนข้าม)</button>
+
+        <!-- กล่องแชต และ สติกเกอร์ -->
+        <div id="chatBox">
+            <div id="chatMessages"></div>
+            <input type="text" id="chatInput" placeholder="พิมพ์ข้อความ..." style="width:65%; padding:6px;" onkeypress="if(event.key==='Enter') sendChat()">
+            <button onclick="sendChat()" style="width:28%; padding:6px; background:#3498db;">ส่ง</button>
+            <div>
+                <button class="sticker-btn" onclick="sendSticker('🤣')">🤣</button>
+                <button class="sticker-btn" onclick="sendSticker('💩')">💩</button>
+                <button class="sticker-btn" onclick="sendSticker('บวกมาเลย!')">🔥</button>
+                <button class="sticker-btn" onclick="sendSticker('กราบละอย่าบวก')">คัมซา</button>
+                <button class="sticker-btn" onclick="sendSticker('ช้าจังวะ!')">⏰</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 💣 Popup มินิเกม ไพ่ระเบิด -->
+    <div id="bombEventOverlay" class="overlay">
+        <h1 style="color:#ff3838; font-size:40px;">💣 ไพ่ระเบิดทำงาน! 💣</h1>
+        <p style="font-size:18px;">ใครกดช้าสุดรับไพ่โทษไปเลย!</p>
+        <button class="btn-uno" style="background:#ff3838; color:white;" onclick="defuseBomb()">กดกู้ระเบิด!</button>
     </div>
 
     <!-- 🎲 Overlay เลือกสี Wild Card -->
@@ -107,32 +137,24 @@
     <div id="plusAskOverlay" class="overlay">
         <div class="card-box">
             <h3 style="color:#ff4757;">⚠️ คุณกำลังโดนบวกสะสม!</h3>
-            <p>คุณมีไพ่ +2 หรือ +4 ในมือที่จะลงต่อสู้หรือไม่?</p>
-            <p style="font-size:12px; color:#aaa;">*(คำเตือน: ถ้าตอบว่า "มี" แต่ไม่มีจริง ถือว่าโกหก จะโดนทำโทษจั่วเพิ่ม +14 ใบทันที!)*</p>
+            <p>คุณมีไพ่ +2, +4 หรือ ไพ่ระเบิด ในมือเพื่อสู้หรือไม่?</p>
+            <p style="font-size:12px; color:#aaa;">*(ตอบโกหกแต่ไม่มีจริง โดนทำโทษ +14 ใบทันที!)*</p>
             <button onclick="answerPlusAsk(true)" style="background:#2ecc71;">มี! (ลงต่อ)</button>
             <button onclick="answerPlusAsk(false)" style="background:#e74c3c;">ไม่มี (ยอมรับโทษจั่ว)</button>
         </div>
     </div>
 
-    <!-- 🔔 Popup กด UNO (เหลือ 1 ใบ) -->
+    <!-- 🔔 Popup กด UNO / UNO WIN -->
     <div id="unoOverlay" class="overlay">
         <h2 style="color:#f1c40f;">เหลือไพ่ 1 ใบแล้ว!</h2>
         <button class="btn-uno" onclick="clickUnoBtn('UNO')">กด UNO!<br>(<span id="unoTimer">5</span>s)</button>
     </div>
-
-    <!-- 🏆 Popup กด UNO WIN (หมดมือ) -->
     <div id="unoWinOverlay" class="overlay">
         <h2 style="color:#2ecc71;">คุณทิ้งไพ่หมดมือแล้ว!</h2>
         <button class="btn-uno" style="background:#2ecc71; color:white;" onclick="clickUnoBtn('WIN')">กด UNO WIN!<br>(<span id="winTimer">5</span>s)</button>
     </div>
 
-    <!-- 🎲 Popup มินิเกม ดวลไว -->
-    <div id="quickDrawOverlay" class="overlay">
-        <h1 style="color:#f1c40f;">🎲 ดวลไว Quick Draw!</h1>
-        <button class="btn-uno" style="background:#e74c3c;" onclick="submitQuickDraw()">กด!</button>
-    </div>
-
-    <!-- 🏁 หน้าสรุปจบเกม & เปิดไพ่ทุกคน -->
+    <!-- 🏁 หน้าสรุปจบเกม -->
     <div id="gameOverArea" class="card-box" style="display:none; width:80%; max-width:600px;">
         <h1 style="color:#f1c40f;">🎉 สรุปผลการแข่งขัน 🎉</h1>
         <h2 id="winnerText" style="color:#2ecc71;"></h2>
@@ -159,6 +181,12 @@
             const roomId = document.getElementById('roomIdInput').value;
             if(!name || !roomId) return alert('กรอกชื่อและรหัสห้องให้ครบ');
             socket.emit('joinRoom', { name, roomId });
+        }
+
+        function changeName() {
+            const newName = document.getElementById('renameInput').value;
+            if(!newName) return alert('กรุณากรอกชื่อใหม่');
+            socket.emit('changeName', { roomId: currentRoomId, newName });
         }
 
         function toggleReady() {
@@ -220,7 +248,7 @@
             state.myHand.forEach((card, idx) => {
                 const c = document.createElement('div');
                 c.className = `uno-card ${card.color}`;
-                c.innerText = card.isBomb ? '💣' : card.value;
+                c.innerText = card.value;
                 c.onclick = () => {
                     if(c.classList.contains('selected')) {
                         c.classList.remove('selected');
@@ -232,8 +260,6 @@
                 };
                 myHandDiv.appendChild(c);
             });
-
-            document.getElementById('bombTimer').style.display = state.myHand.some(c => c.isBomb) ? 'block' : 'none';
         }
 
         function playSelectedCards() {
@@ -243,14 +269,40 @@
 
         function drawCard() { socket.emit('drawCard', { roomId: currentRoomId }); }
 
-        // Wild Color Overlay
+        // มินิเกมไพ่ระเบิด
+        socket.on('triggerBombEvent', () => {
+            document.getElementById('bombEventOverlay').style.display = 'flex';
+        });
+
+        function defuseBomb() {
+            document.getElementById('bombEventOverlay').style.display = 'none';
+            socket.emit('bombClick', { roomId: currentRoomId });
+        }
+
+        // แชต & สติกเกอร์
+        function sendChat() {
+            const input = document.getElementById('chatInput');
+            if(input.value.trim()) {
+                socket.emit('sendChat', { roomId: currentRoomId, msg: input.value });
+                input.value = '';
+            }
+        }
+        function sendSticker(sticker) {
+            socket.emit('sendChat', { roomId: currentRoomId, msg: sticker });
+        }
+        socket.on('receiveChat', ({ sender, msg }) => {
+            const box = document.getElementById('chatMessages');
+            box.innerHTML += `<div><b>${sender}:</b> ${msg}</div>`;
+            box.scrollTop = box.scrollHeight;
+        });
+
+        // Wild & Plus Ask Overlays
         socket.on('chooseWildColor', () => { document.getElementById('wildOverlay').style.display = 'flex'; });
         function selectWildColor(color) {
             document.getElementById('wildOverlay').style.display = 'none';
             socket.emit('setWildColor', { roomId: currentRoomId, color });
         }
 
-        // Plus Ask Overlay
         socket.on('askPlusCards', () => { document.getElementById('plusAskOverlay').style.display = 'flex'; });
         function answerPlusAsk(hasPlus) {
             document.getElementById('plusAskOverlay').style.display = 'none';
@@ -285,18 +337,10 @@
             socket.emit('unoSuccess', { roomId: currentRoomId, type });
         }
 
-        // Quick Draw
-        socket.on('triggerQuickDraw', () => { document.getElementById('quickDrawOverlay').style.display = 'flex'; });
-        function submitQuickDraw() {
-            document.getElementById('quickDrawOverlay').style.display = 'none';
-            socket.emit('quickDrawClick', { roomId: currentRoomId });
-        }
-
         socket.on('turnTimerSec', (sec) => { document.getElementById('turnTimer').innerText = sec; });
-        socket.on('bombCountdown', (sec) => { document.getElementById('timerSec').innerText = sec; });
         socket.on('errorMsg', (msg) => alert(msg));
 
-        // สรุปจบเกม & ดูไพ่ทุกคน
+        // หน้าสรุปจบเกม
         socket.on('gameOverShowAll', ({ winnerNames, playersHands }) => {
             document.getElementById('gameArea').style.display = 'none';
             document.getElementById('gameOverArea').style.display = 'inline-block';

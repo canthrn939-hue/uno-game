@@ -10,7 +10,7 @@ app.use(express.static(__dirname));
 
 let rooms = {};
 
-function createDeck() {
+function createDeck(playerCount) {
     const colors = ['red', 'yellow', 'green', 'blue'];
     const values = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'Skip', 'Reverse', '+2'];
     let deck = [];
@@ -27,12 +27,14 @@ function createDeck() {
         deck.push({ color: 'black', value: '+4' });
     }
 
+    // 💣 ไพ่ระเบิดจะถูกใส่เข้ามาเฉพาะเมื่อเล่น 4 คนขึ้นไปเท่านั้น
+    if (playerCount >= 4) {
+        for (let i = 0; i < 4; i++) {
+            deck.push({ color: 'black', value: '💣ระเบิด' });
+        }
+    }
+
     deck.sort(() => Math.random() - 0.5);
-
-    // สุ่ม 1 ใบเป็นไพ่ระเบิด
-    const bombIndex = Math.floor(Math.random() * deck.length);
-    deck[bombIndex].isBomb = true;
-
     return deck;
 }
 
@@ -43,15 +45,14 @@ io.on('connection', (socket) => {
         rooms[roomId] = {
             id: roomId,
             maxPlayers: parseInt(maxPlayers) || 10,
-            players: [{ id: socket.id, name, isHost: true, isReady: false, hand: [] }],
+            players: [{ id: socket.id, name, isHost: true, isReady: false, hand: [], hasDrawnThisTurn: false }],
             deck: [],
             topCard: null,
             turn: 0,
-            turnCount: 0,
             stackedPenalty: 0,
             winnerTarget: 1,
             winners: [],
-            quickDrawClicks: [],
+            bombClicks: [],
             turnTimerObj: null
         };
         socket.join(roomId);
@@ -63,8 +64,16 @@ io.on('connection', (socket) => {
         if (!room) return socket.emit('errorMsg', 'ไม่พบห้องนี้');
         if (room.players.length >= room.maxPlayers) return socket.emit('errorMsg', 'ห้องเต็มแล้ว');
 
-        room.players.push({ id: socket.id, name, isHost: false, isReady: false, hand: [] });
+        room.players.push({ id: socket.id, name, isHost: false, isReady: false, hand: [], hasDrawnThisTurn: false });
         socket.join(roomId);
+        io.to(roomId).emit('updateRoom', room);
+    });
+
+    socket.on('changeName', ({ roomId, newName }) => {
+        const room = rooms[roomId];
+        if (!room) return;
+        const p = room.players.find(x => x.id === socket.id);
+        if (p) p.name = newName;
         io.to(roomId).emit('updateRoom', room);
     });
 
@@ -81,7 +90,7 @@ io.on('connection', (socket) => {
         if (!room) return;
 
         room.winnerTarget = winnerTarget || 1;
-        room.deck = createDeck();
+        room.deck = createDeck(room.players.length);
         
         // แจกไพ่สุ่มคนละ 10 ใบ
         room.players.forEach(p => { p.hand = room.deck.splice(0, 10); });
@@ -90,35 +99,32 @@ io.on('connection', (socket) => {
         room.turn = 0;
 
         startTurnTimer(room);
-        startBombTimer(room);
         sendGameState(room);
         io.to(roomId).emit('gameStarted');
     });
 
-    // ลงไพ่ (รองรับทิ้งพร้อมกันถ้าเลขเหมือนกัน)
+    // ลงไพ่
     socket.on('playCard', ({ roomId, cardIndexes }) => {
         const room = rooms[roomId];
         if (!room) return;
         const player = room.players[room.turn];
         if (player.id !== socket.id) return socket.emit('errorMsg', 'ยังไม่ถึงตาคุณ!');
 
-        cardIndexes.sort((a, b) => b - a); // ลบจากดรรชนีมากไปน้อย
+        cardIndexes.sort((a, b) => b - a);
         const cardsToPlay = cardIndexes.map(idx => player.hand[idx]);
 
-        // เช็คว่าไพ่ที่จะลงพร้อมกันมีค่าตัวเลข/คำสั่งเหมือนกันทุกใบไหม
         const firstVal = cardsToPlay[0].value;
         const allSameValue = cardsToPlay.every(c => c.value === firstVal);
 
         if (!allSameValue) return socket.emit('errorMsg', 'ลงพร้อมกันได้เฉพาะไพ่ที่มีเลข/คำสั่งเหมือนกันเท่านั้น!');
 
         const firstCard = cardsToPlay[0];
-        // เช็คความถูกต้องกับไพ่กลาง
         const isValid = (firstCard.color === room.topCard.color || firstCard.value === room.topCard.value || firstCard.color === 'black');
         if (!isValid) return socket.emit('errorMsg', 'ไพ่ไม่ตรงกับใบกลางโต๊ะ!');
 
         // ทิ้งไพ่ออกจากมือ
         cardIndexes.forEach(idx => player.hand.splice(idx, 1));
-        room.topCard = cardsToPlay[cardsToPlay.length - 1]; // ใบสุดท้ายขึ้นกลาง
+        room.topCard = cardsToPlay[cardsToPlay.length - 1];
 
         // สะสมโทษ +2 / +4
         cardsToPlay.forEach(c => {
@@ -126,11 +132,42 @@ io.on('connection', (socket) => {
             if (c.value === '+4') room.stackedPenalty += 4;
         });
 
-        // เช็คการ์ดเปลี่ยนสี Wild
+        // กรณีลงไพ่ระเบิด! 💣
+        if (firstCard.value === '💣ระเบิด') {
+            room.bombClicks = [];
+            // ส่งอีเวนต์ให้ทุกคน ยกเว้น คนลงไพ่ระเบิด
+            room.players.forEach(p => {
+                if (p.id !== player.id) io.to(p.id).emit('triggerBombEvent');
+            });
+            return;
+        }
+
         if (room.topCard.color === 'black') {
             socket.emit('chooseWildColor');
         } else {
             processAfterPlay(room, player);
+        }
+    });
+
+    // มินิเกมกดระเบิด
+    socket.on('bombClick', ({ roomId }) => {
+        const room = rooms[roomId];
+        if (!room) return;
+        if (!room.bombClicks.includes(socket.id)) room.bombClicks.push(socket.id);
+
+        const targetCount = room.players.length - 1; // ไม่นับคนลง
+        if (room.bombClicks.length === targetCount) {
+            const slowestId = room.bombClicks[room.bombClicks.length - 1];
+            const victim = room.players.find(p => p.id === slowestId);
+            
+            // โทษระเบิด +4 รวมกับโทษสะสมเดิม
+            const totalPenalty = room.stackedPenalty + 4;
+            for (let i = 0; i < totalPenalty; i++) victim.hand.push(room.deck.pop());
+
+            io.to(room.id).emit('errorMsg', `💥 ${victim.name} กดระเบิดช้าสุด! รับไพ่โทษไปทั้งหมด ${totalPenalty} ใบ!`);
+            room.stackedPenalty = 0;
+            checkHandOverLimit(room, victim);
+            nextTurn(room);
         }
     });
 
@@ -143,7 +180,6 @@ io.on('connection', (socket) => {
     });
 
     function processAfterPlay(room, player) {
-        // เช็คการกด UNO
         if (player.hand.length === 1) {
             socket.emit('triggerUnoBtn', 'UNO');
         } else if (player.hand.length === 0) {
@@ -153,27 +189,25 @@ io.on('connection', (socket) => {
         }
     }
 
-    // ระบบถามบลัฟ +2/+4
+    // ถามบลัฟ +2/+4
     socket.on('answerPlusAsk', ({ roomId, hasPlus }) => {
         const room = rooms[roomId];
         if (!room) return;
         const player = room.players[room.turn];
 
         if (hasPlus) {
-            const reallyHas = player.hand.some(c => c.value === '+2' || c.value === '+4');
+            const reallyHas = player.hand.some(c => c.value === '+2' || c.value === '+4' || c.value === '💣ระเบิด');
             if (!reallyHas) {
-                // 🤥 โกหก! โดนโทษ +14 ใบ
                 const totalDraw = room.stackedPenalty + 14;
                 for (let i = 0; i < totalDraw; i++) player.hand.push(room.deck.pop());
-                io.to(room.id).emit('errorMsg', `🤥 ${player.name} โกหก! ว่ามีไพ่บวก โดนทำโทษจั่วไป ${totalDraw} ใบ!`);
+                io.to(room.id).emit('errorMsg', `🤥 ${player.name} โกหก! โดนทำโทษจั่วไป ${totalDraw} ใบ!`);
                 room.stackedPenalty = 0;
                 checkHandOverLimit(room, player);
                 nextTurn(room);
             } else {
-                io.to(player.id).emit('errorMsg', 'โปรดเลือกไพ่ +2 หรือ +4 ลงสู้!');
+                io.to(player.id).emit('errorMsg', 'โปรดเลือกไพ่สู้!');
             }
         } else {
-            // ยอมรับโทษจั่วตามปกติ
             for (let i = 0; i < room.stackedPenalty; i++) player.hand.push(room.deck.pop());
             io.to(room.id).emit('errorMsg', `📥 ${player.name} ยอมรับโทษ โดนจั่วไป ${room.stackedPenalty} ใบ`);
             room.stackedPenalty = 0;
@@ -214,29 +248,32 @@ io.on('connection', (socket) => {
         nextTurn(room);
     });
 
-    // จั่วไพ่
+    // ระบบการจั่วไพ่แบบใหม่
     socket.on('drawCard', ({ roomId }) => {
         const room = rooms[roomId];
         if (!room) return;
         const player = room.players[room.turn];
 
         player.hand.push(room.deck.pop());
+        player.hasDrawnThisTurn = true;
         checkHandOverLimit(room, player);
-        nextTurn(room);
+
+        // เช็คว่ามีไพ่ลงได้หรือไม่หลังจากจั่วแล้ว
+        const canPlay = player.hand.some(c => c.color === room.topCard.color || c.value === room.topCard.value || c.color === 'black');
+        
+        if (!canPlay) {
+            io.to(room.id).emit('errorMsg', `📥 ${player.name} จั่วไพ่แล้วไม่มีใบลง ข้ามตาอัตโนมัติ`);
+            nextTurn(room);
+        } else {
+            sendGameState(room);
+        }
     });
 
     function nextTurn(room) {
         clearInterval(room.turnTimerObj);
+        room.players[room.turn].hasDrawnThisTurn = false;
         room.turn = (room.turn + 1) % room.players.length;
-        room.turnCount++;
 
-        // มินิเกม ดวลไว ทุก 5 ตา
-        if (room.turnCount % 5 === 0) {
-            room.quickDrawClicks = [];
-            io.to(room.id).emit('triggerQuickDraw');
-        }
-
-        // ถ้าตาถัดไปมีการสะสมโทษ ถามบลัฟก่อน
         if (room.stackedPenalty > 0) {
             const nextPlayer = room.players[room.turn];
             io.to(nextPlayer.id).emit('askPlusCards');
@@ -246,9 +283,9 @@ io.on('connection', (socket) => {
         sendGameState(room);
     }
 
-    // เวลาเดิน 20 วิ
+    // เวลาเดินตาละ 40 วินาที
     function startTurnTimer(room) {
-        let sec = 20;
+        let sec = 40;
         clearInterval(room.turnTimerObj);
         room.turnTimerObj = setInterval(() => {
             sec--;
@@ -257,18 +294,26 @@ io.on('connection', (socket) => {
                 clearInterval(room.turnTimerObj);
                 const p = room.players[room.turn];
                 for (let i = 0; i < 6; i++) p.hand.push(room.deck.pop());
-                io.to(room.id).emit('errorMsg', `⏰ ${p.name} ช้าเกิน 20 วินาที! โดนทำโทษจั่ว 6 ใบ`);
+                io.to(room.id).emit('errorMsg', `⏰ ${p.name} ช้าเกิน 40 วินาที! โดนทำโทษจั่ว 6 ใบ`);
                 checkHandOverLimit(room, p);
                 nextTurn(room);
             }
         }, 1000);
     }
 
+    // เช็คกรณีถือไพ่เกิน 25 ใบ (แพ้ทันที)
     function checkHandOverLimit(room, player) {
         if (player.hand.length > 25) {
-            io.to(room.id).emit('errorMsg', `💥 ${player.name} ถือไพ่เกิน 25 ใบ (แพ้และออกจากเกมทันที!)`);
+            io.to(room.id).emit('errorMsg', `💥 ${player.name} ถือไพ่เกิน 25 ใบ (แพ้และถูกคัดออกจากเกมทันที!)`);
             room.players = room.players.filter(p => p.id !== player.id);
-            if (room.players.length <= 1) endGameShowAll(room);
+            
+            // ถ้าเหลือแค่ 1 คน คนที่เหลือชนะทันที
+            if (room.players.length === 1) {
+                room.winners.push(room.players[0].name);
+                endGameShowAll(room);
+            } else if (room.players.length === 0) {
+                endGameShowAll(room);
+            }
         }
     }
 
@@ -282,40 +327,13 @@ io.on('connection', (socket) => {
         delete rooms[room.id];
     }
 
-    // ไพ่ระเบิดเวลา
-    function startBombTimer(room) {
-        let sec = 30;
-        const interval = setInterval(() => {
-            sec--;
-            io.to(room.id).emit('bombCountdown', sec);
-            if (sec <= 0) {
-                clearInterval(interval);
-                if (!rooms[room.id]) return;
-                room.players.forEach(p => {
-                    const idx = p.hand.findIndex(c => c.isBomb);
-                    if (idx !== -1) {
-                        p.hand.splice(idx, 1);
-                        for (let i = 0; i < 4; i++) p.hand.push(room.deck.pop());
-                        io.to(room.id).emit('errorMsg', `💥 ไพ่ระเบิดทำงานใส่ ${p.name}! โดนจั่ว 4 ใบ`);
-                    }
-                });
-                sendGameState(room);
-            }
-        }, 1000);
-    }
-
-    // Quick draw
-    socket.on('quickDrawClick', ({ roomId }) => {
+    // ระบบแชต
+    socket.on('sendChat', ({ roomId, msg }) => {
         const room = rooms[roomId];
         if (!room) return;
-        if (!room.quickDrawClicks.includes(socket.id)) room.quickDrawClicks.push(socket.id);
-        if (room.quickDrawClicks.length === room.players.length) {
-            const slowestId = room.quickDrawClicks[room.quickDrawClicks.length - 1];
-            const p = room.players.find(x => x.id === slowestId);
-            p.hand.push(room.deck.pop(), room.deck.pop());
-            io.to(roomId).emit('errorMsg', `😂 ${p.name} กดช้าสุด! โดนจั่วเพิ่ม 2 ใบ`);
-            room.quickDrawClicks = [];
-            sendGameState(room);
+        const p = room.players.find(x => x.id === socket.id);
+        if (p) {
+            io.to(roomId).emit('receiveChat', { sender: p.name, msg });
         }
     });
 
