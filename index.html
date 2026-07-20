@@ -3,106 +3,208 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UNO Online (รองรับสูงสุด 15 คน)</title>
+    <title>UNO Online Super Chaos (สูงสุด 15 คน)</title>
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; background-color: #2c3e50; color: white; text-align: center; padding: 20px; }
-        .card { background: white; color: black; padding: 20px; border-radius: 10px; display: inline-block; width: 300px; margin-top: 20px; }
-        input, select, button { width: 80%; padding: 10px; margin: 8px 0; border-radius: 5px; border: none; font-size: 16px; }
-        button { background: #e74c3c; color: white; cursor: pointer; font-weight: bold; }
-        button:hover { background: #c0392b; }
-        .room-info { background: #34495e; padding: 15px; border-radius: 8px; margin-top: 15px; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1e272e; color: white; text-align: center; margin: 0; padding: 15px; }
+        .card-box { background: #2f3640; color: white; padding: 20px; border-radius: 12px; display: inline-block; width: 340px; margin-top: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        input, select, button { width: 85%; padding: 12px; margin: 8px 0; border-radius: 6px; border: none; font-size: 16px; font-weight: bold; }
+        button { background: #e74c3c; color: white; cursor: pointer; transition: 0.2s; }
+        button:hover { background: #c0392b; transform: scale(1.02); }
+        
+        .rules-box { background: #353b48; text-align: left; padding: 12px; border-radius: 8px; font-size: 13px; max-height: 180px; overflow-y: auto; margin: 10px 0; border: 1px solid #718093; }
+        .uno-card { display: inline-block; width: 65px; height: 95px; line-height: 95px; margin: 4px; border-radius: 8px; font-weight: bold; font-size: 18px; color: white; border: 2px solid white; cursor: pointer; box-shadow: 2px 4px 6px rgba(0,0,0,0.4); text-align: center; }
+        .red { background: #e74c3c; } .yellow { background: #f1c40f; color: black; } .green { background: #2ecc71; } .blue { background: #3498db; } .black { background: #2d3436; }
+        
+        /* Popups มินิเกม */
+        .overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 999; justify-content: center; align-items: center; flex-direction: column; }
+        .btn-quick { width: 200px; height: 200px; border-radius: 50%; font-size: 32px; background: #e74c3c; animation: pulse 0.5s infinite alternate; }
+        @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.1); } }
+        .bomb-alert { color: #ff3838; font-size: 20px; font-weight: bold; animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
     </style>
 </head>
 <body>
 
-    <h1>🎮 เกม UNO Online</h1>
+    <h1>🎮 UNO Online Super Chaos</h1>
 
-    <!-- หน้าเมนูหลัก -->
-    <div id="lobby" class="card">
+    <!-- 1. ล็อบบี้สร้าง/เข้าห้อง -->
+    <div id="lobby" class="card-box">
         <h3>เข้าสู่เกม</h3>
-        <input type="text" id="playerName" placeholder="ใส่ชื่อของคุณ" required><br>
-        
+        <input type="text" id="playerName" placeholder="ใส่ชื่อของคุณ"><br>
         <hr>
-        <h4>สร้างห้องใหม่</h4>
-        <label>จำนวนผู้เล่น:</label>
+        <h4>สร้างห้องใหม่ (2-15 คน)</h4>
         <select id="maxPlayers">
-            <option value="2">2 คน</option>
-            <option value="3">3 คน</option>
-            <option value="4" selected>4 คน</option>
-            <option value="5">5 คน</option>
-            <option value="6">6 คน</option>
-            <option value="7">7 คน</option>
-            <option value="8">8 คน</option>
-            <option value="9">9 คน</option>
-            <option value="10">10 คน</option>
-            <option value="11">11 คน</option>
-            <option value="12">12 คน</option>
-            <option value="13">13 คน</option>
-            <option value="14">14 คน</option>
-            <option value="15">15 คน</option>
+            <option value="2">2 คน</option><option value="4" selected>4 คน</option>
+            <option value="8">8 คน</option><option value="15">15 คน</option>
         </select>
         <button onclick="createRoom()">สร้างห้อง</button>
-
         <hr>
         <h4>เข้าร่วมห้อง</h4>
         <input type="text" id="roomIdInput" placeholder="รหัสห้อง 5 หลัก">
         <button onclick="joinRoom()">เข้าห้อง</button>
     </div>
 
-    <!-- หน้าห้องรอเล่น -->
-    <div id="roomView" class="card" style="display:none;">
-        <h2>ห้องรหัส: <span id="displayRoomId" style="color: #f1c40f;"></span></h2>
-        <div class="room-info">
-            <h4>รายชื่อผู้เล่นในห้อง (<span id="playerCount">0</span>):</h4>
-            <ul id="playerList" style="list-style: none; padding: 0;"></ul>
+    <!-- 2. หน้าห้องรอ + ยอมรับกติกา -->
+    <div id="roomView" class="card-box" style="display:none;">
+        <h2>ห้อง: <span id="displayRoomId" style="color:#f1c40f;"></span></h2>
+        
+        <div class="rules-box">
+            <b>📜 กติกาพิเศษสุดป่วน:</b><br>
+            1. แจกไพ่สุ่มคนละ 10 ใบ (เกิน 25 ใบ = <b>แพ้ทันที!</b>)<br>
+            2. ต้องจั่วอย่างน้อย 1 ใบเมื่อถึงตาตัวเอง<br>
+            3. 🎲 <b>ดวลไว Quick Draw:</b> ครบ 5 ตา ต้องแย่งกันกดปุ่ม ใครช้าสุดจั่ว +2<br>
+            4. 💣 <b>ไพ่ระเบิดเวลา:</b> ถือไพ่ระเบิดเกิน 30 วิ จะระเบิดโดนจั่ว +4<br>
+            5. 🧠 <b>สายสืบทายใจ:</b> ตอนโดนบวกไพ่ เลือกกดทายใจเพื่อนได้ (ทายถูกเพื่อนโดนข้าม / ทายผิดเราจั่วเพิ่ม +2)
         </div>
-        <p>รอผู้เล่นคนอื่นเข้าร่วม...</p>
+
+        <h4>ผู้เล่น (<span id="playerCount">0</span>):</h4>
+        <ul id="playerList" style="list-style:none; padding:0; text-align:left;"></ul>
+
+        <button id="acceptRulesBtn" onclick="toggleReady()" style="background:#2ecc71;">✅ ยอมรับกติกาและเตรียมพร้อม</button>
+        <button id="startGameBtn" onclick="startGame()" style="display:none; background:#e67e22;">▶️ เริ่มเกมเลย (สำหรับหัวห้อง)</button>
+    </div>
+
+    <!-- 3. หน้ากระดานเกม -->
+    <div id="gameArea" style="display:none;">
+        <div id="bombTimer" class="bomb-alert" style="display:none;">💣 คุณมีไพ่ระเบิด! เหลือเวลา <span id="timerSec">30</span> วินาที!</div>
+        
+        <div style="background:#0097e6; padding:15px; border-radius:10px; max-width:500px; margin:auto;">
+            <h3>ไพ่กลางโต๊ะ</h3>
+            <div id="topCard" class="uno-card black">?</div>
+            <p>ตาผู้เล่นปัจจุบัน: <h2 id="turnInfo" style="color:#f1c40f; margin:0;">-</h2></p>
+        </div>
+
+        <br>
+        <h3>ไพ่ในมือของคุณ (<span id="handCount">0</span>/25 ใบ)</h3>
+        <div id="myHand"></div>
+        <br>
+        <button onclick="drawCard()" style="width:auto; padding:10px 30px; background:#e67e22;">📥 จั่วไพ่ (บังคับ/เพิ่ม)</button>
+    </div>
+
+    <!-- 🎲 Popup มินิเกม 1: ดวลไว -->
+    <div id="quickDrawOverlay" class="overlay">
+        <h1 style="color:#f1c40f; font-size:40px;">🎲 มินิเกม: ดวลไว!</h1>
+        <p>กดปุ่มสีแดงให้เร็วที่สุด! คนช้าสุดจั่ว 2 ใบ!</p>
+        <button class="btn-quick" onclick="submitQuickDraw()">กด!</button>
+    </div>
+
+    <!-- 🧠 Popup มินิเกม 3: ทายใจสายสืบ -->
+    <div id="guessOverlay" class="overlay">
+        <div class="card-box">
+            <h3>🧠 คุณโดนบวกไพ่! ต้องการทายใจไหม?</h3>
+            <p>ทายถูก: เพื่อนถัดไปโดนข้ามตา<br>ทายผิด: โดนบวกเพิ่มอีก +2 ใบ!</p>
+            <select id="guessColor">
+                <option value="red">สีแดง</option><option value="yellow">สีเหลือง</option>
+                <option value="green">สีเขียว</option><option value="blue">สีฟ้า</option>
+            </select>
+            <button onclick="submitGuess(true)" style="background:#2ecc71;">🎯 ทายใจ!</button>
+            <button onclick="submitGuess(false)" style="background:#95a5a6;">❌ ไม่ทาย (รับโทษปกติ)</button>
+        </div>
     </div>
 
     <script>
         const socket = io();
+        let currentRoomId = '', isReady = false;
 
         function createRoom() {
             const name = document.getElementById('playerName').value;
             const maxPlayers = document.getElementById('maxPlayers').value;
-            if (!name) return alert('กรุณาใส่ชื่อของคุณก่อนครับ');
+            if(!name) return alert('ใส่ชื่อก่อนครับ');
             socket.emit('createRoom', { name, maxPlayers });
         }
 
         function joinRoom() {
             const name = document.getElementById('playerName').value;
             const roomId = document.getElementById('roomIdInput').value;
-            if (!name || !roomId) return alert('กรุณากรอกชื่อและรหัสห้องให้ครบถ้วน');
+            if(!name || !roomId) return alert('กรอกชื่อและรหัสห้องให้ครบ');
             socket.emit('joinRoom', { name, roomId });
         }
 
-        socket.on('roomCreated', ({ roomId, room }) => {
-            showRoom(roomId, room);
-        });
+        function toggleReady() {
+            isReady = !isReady;
+            document.getElementById('acceptRulesBtn').innerText = isReady ? "⏳ ยกเลิกการเตรียมพร้อม" : "✅ ยอมรับกติกาและเตรียมพร้อม";
+            document.getElementById('acceptRulesBtn').style.background = isReady ? "#e74c3c" : "#2ecc71";
+            socket.emit('playerReady', { roomId: currentRoomId, isReady });
+        }
+
+        function startGame() { socket.emit('startGame', { roomId: currentRoomId }); }
+        function drawCard() { socket.emit('drawCard', { roomId: currentRoomId }); }
 
         socket.on('updateRoom', (room) => {
-            showRoom(room.id, room);
-        });
-
-        socket.on('errorMsg', (msg) => {
-            alert(msg);
-        });
-
-        function showRoom(roomId, room) {
+            currentRoomId = room.id;
             document.getElementById('lobby').style.display = 'none';
             document.getElementById('roomView').style.display = 'block';
-            document.getElementById('displayRoomId').innerText = roomId;
+            document.getElementById('displayRoomId').innerText = room.id;
             document.getElementById('playerCount').innerText = `${room.players.length}/${room.maxPlayers}`;
-            
+
             const list = document.getElementById('playerList');
             list.innerHTML = '';
+            let allReady = true, isHost = false;
+
             room.players.forEach(p => {
+                if(p.id === socket.id && p.isHost) isHost = true;
+                if(!p.isReady) allReady = false;
                 const li = document.createElement('li');
-                li.innerText = (p.isHost ? '👑 ' : '👤 ') + p.name;
+                li.innerHTML = `${p.isHost ? '👑' : '👤'} ${p.name} ${p.isReady ? '<b style="color:#2ecc71">[ยอมรับกติกาแล้ว]</b>' : '<span style="color:#aaa">[รอยอมรับ]</span>'}`;
                 list.appendChild(li);
             });
+
+            document.getElementById('startGameBtn').style.display = (isHost && allReady && room.players.length >= 2) ? 'inline-block' : 'none';
+        });
+
+        socket.on('gameStarted', (state) => {
+            document.getElementById('roomView').style.display = 'none';
+            document.getElementById('gameArea').style.display = 'block';
+            updateGameState(state);
+        });
+
+        socket.on('updateGame', updateGameState);
+
+        function updateGameState(state) {
+            document.getElementById('turnInfo').innerText = state.currentPlayerName;
+            
+            // อัปเดตไพ่กลาง
+            const top = document.getElementById('topCard');
+            top.className = `uno-card ${state.topCard.color}`;
+            top.innerText = state.topCard.value;
+
+            // อัปเดตไพ่ในมือ
+            const myHandDiv = document.getElementById('myHand');
+            myHandDiv.innerHTML = '';
+            document.getElementById('handCount').innerText = state.myHand.length;
+
+            state.myHand.forEach((card, idx) => {
+                const c = document.createElement('div');
+                c.className = `uno-card ${card.color}`;
+                c.innerText = card.isBomb ? '💣' : card.value;
+                c.onclick = () => socket.emit('playCard', { roomId: currentRoomId, cardIndex: idx });
+                myHandDiv.appendChild(c);
+            });
+
+            // เช็คไพ่ระเบิด
+            const hasBomb = state.myHand.some(c => c.isBomb);
+            document.getElementById('bombTimer').style.display = hasBomb ? 'block' : 'none';
         }
+
+        // มินิเกม 1: Quick Draw
+        socket.on('triggerQuickDraw', () => { document.getElementById('quickDrawOverlay').style.display = 'flex'; });
+        function submitQuickDraw() {
+            document.getElementById('quickDrawOverlay').style.display = 'none';
+            socket.emit('quickDrawClick', { roomId: currentRoomId });
+        }
+
+        // มินิเกม 3: ทายใจ
+        socket.on('triggerGuess', () => { document.getElementById('guessOverlay').style.display = 'flex'; });
+        function submitGuess(willGuess) {
+            document.getElementById('guessOverlay').style.display = 'none';
+            const color = document.getElementById('guessColor').value;
+            socket.emit('answerGuess', { roomId: currentRoomId, willGuess, guessedColor: color });
+        }
+
+        socket.on('bombCountdown', (sec) => { document.getElementById('timerSec').innerText = sec; });
+        socket.on('errorMsg', (msg) => alert(msg));
+        socket.on('gameOver', (msg) => { alert(msg); location.reload(); });
     </script>
 </body>
 </html>
