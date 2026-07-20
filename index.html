@@ -3,25 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UNO Online Super Chaos (สูงสุด 15 คน)</title>
+    <title>UNO Online Super Chaos (2-50 คน)</title>
     <script src="/socket.io/socket.io.js"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1e272e; color: white; text-align: center; margin: 0; padding: 15px; }
-        .card-box { background: #2f3640; color: white; padding: 20px; border-radius: 12px; display: inline-block; width: 340px; margin-top: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        .card-box { background: #2f3640; color: white; padding: 20px; border-radius: 12px; display: inline-block; width: 360px; margin-top: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
         input, select, button { width: 85%; padding: 12px; margin: 8px 0; border-radius: 6px; border: none; font-size: 16px; font-weight: bold; }
         button { background: #e74c3c; color: white; cursor: pointer; transition: 0.2s; }
         button:hover { background: #c0392b; transform: scale(1.02); }
         
-        .rules-box { background: #353b48; text-align: left; padding: 12px; border-radius: 8px; font-size: 13px; max-height: 180px; overflow-y: auto; margin: 10px 0; border: 1px solid #718093; }
+        .rules-box { background: #353b48; text-align: left; padding: 12px; border-radius: 8px; font-size: 12px; max-height: 200px; overflow-y: auto; margin: 10px 0; border: 1px solid #718093; line-height: 1.5; }
         .uno-card { display: inline-block; width: 65px; height: 95px; line-height: 95px; margin: 4px; border-radius: 8px; font-weight: bold; font-size: 18px; color: white; border: 2px solid white; cursor: pointer; box-shadow: 2px 4px 6px rgba(0,0,0,0.4); text-align: center; }
+        .uno-card.selected { border: 4px solid #f1c40f; transform: translateY(-10px); }
         .red { background: #e74c3c; } .yellow { background: #f1c40f; color: black; } .green { background: #2ecc71; } .blue { background: #3498db; } .black { background: #2d3436; }
         
-        /* Popups มินิเกม */
         .overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 999; justify-content: center; align-items: center; flex-direction: column; }
-        .btn-quick { width: 200px; height: 200px; border-radius: 50%; font-size: 32px; background: #e74c3c; animation: pulse 0.5s infinite alternate; }
+        .btn-uno { width: 180px; height: 180px; border-radius: 50%; font-size: 28px; background: #f1c40f; color: black; animation: pulse 0.4s infinite alternate; }
         @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.1); } }
-        .bomb-alert { color: #ff3838; font-size: 20px; font-weight: bold; animation: blink 1s infinite; }
-        @keyframes blink { 50% { opacity: 0; } }
+        .timer-badge { background: #e74c3c; padding: 5px 15px; border-radius: 20px; font-size: 20px; font-weight: bold; display: inline-block; margin-bottom: 10px; }
+        
+        /* สไตล์หน้าสรุปจบเกม */
+        .other-hand { background: #353b48; margin: 5px; padding: 10px; border-radius: 8px; text-align: left; }
     </style>
 </head>
 <body>
@@ -33,11 +35,9 @@
         <h3>เข้าสู่เกม</h3>
         <input type="text" id="playerName" placeholder="ใส่ชื่อของคุณ"><br>
         <hr>
-        <h4>สร้างห้องใหม่ (2-15 คน)</h4>
-        <select id="maxPlayers">
-            <option value="2">2 คน</option><option value="4" selected>4 คน</option>
-            <option value="8">8 คน</option><option value="15">15 คน</option>
-        </select>
+        <h4>สร้างห้องใหม่ (2-50 คน)</h4>
+        <label>จำนวนผู้เล่นสูงสุด:</label>
+        <input type="number" id="maxPlayers" value="10" min="2" max="50">
         <button onclick="createRoom()">สร้างห้อง</button>
         <hr>
         <h4>เข้าร่วมห้อง</h4>
@@ -45,72 +45,112 @@
         <button onclick="joinRoom()">เข้าห้อง</button>
     </div>
 
-    <!-- 2. หน้าห้องรอ + ยอมรับกติกา -->
+    <!-- 2. หน้าห้องรอ -->
     <div id="roomView" class="card-box" style="display:none;">
         <h2>ห้อง: <span id="displayRoomId" style="color:#f1c40f;"></span></h2>
         
         <div class="rules-box">
-            <b>📜 กติกาพิเศษสุดป่วน:</b><br>
-            1. แจกไพ่สุ่มคนละ 10 ใบ (เกิน 25 ใบ = <b>แพ้ทันที!</b>)<br>
-            2. ต้องจั่วอย่างน้อย 1 ใบเมื่อถึงตาตัวเอง<br>
-            3. 🎲 <b>ดวลไว Quick Draw:</b> ครบ 5 ตา ต้องแย่งกันกดปุ่ม ใครช้าสุดจั่ว +2<br>
-            4. 💣 <b>ไพ่ระเบิดเวลา:</b> ถือไพ่ระเบิดเกิน 30 วิ จะระเบิดโดนจั่ว +4<br>
-            5. 🧠 <b>สายสืบทายใจ:</b> ตอนโดนบวกไพ่ เลือกกดทายใจเพื่อนได้ (ทายถูกเพื่อนโดนข้าม / ทายผิดเราจั่วเพิ่ม +2)
+            <b>📜 กติกาซูเปอร์ป่วน:</b><br>
+            1. แจกไพ่สุ่มคนละ 10 ใบ (ถือเกิน 25 ใบ = <b>แพ้ทันที!</b>)<br>
+            2. <b>บวกทับสะสมโทษ:</b> +2 และ +4 ลงทับกันได้เรื่อยๆ<br>
+            3. <b>การถามบลัฟ:</b> เมื่อโดนบวก ถ้าระบบถามแล้วโกหก = <b>โดน +14 ใบ!</b><br>
+            4. <b>เวลาเดินตา:</b> มีเวลา 20 วิ ถ้าช้าโดนทำโทษ <b>+6 ใบ</b><br>
+            5. <b>ไพ่เลขเหมือน:</b> สีต่างกันหรือเหมือนกันถ้าเลขตรงกัน ลงพร้อมกันได้<br>
+            6. <b>ปุ่ม UNO / UNO WIN:</b> ขึ้นให้กดใน 5 วิ ถ้ากดไม่ทันโดนทำโทษ +4 / +8 ใบ<br>
+            7. 🎲 <b>ดวลไว:</b> ครบ 5 ตา แย่งกันกด ใครช้าสุดจั่ว +2<br>
+            8. 💣 <b>ไพ่ระเบิด:</b> ถือเกิน 30 วิ ระเบิดใส่ตัวจั่ว +4
         </div>
 
-        <h4>ผู้เล่น (<span id="playerCount">0</span>):</h4>
+        <div id="hostSettings" style="display:none; background:#1e272e; padding:10px; border-radius:8px; margin:10px 0;">
+            <label>จำนวนผู้ชนะในเกมนี้ (คน):</label>
+            <input type="number" id="winnerTarget" value="1" min="1" max="10" style="width:50%;">
+        </div>
+
+        <h4>ผู้เล่นในห้อง (<span id="playerCount">0</span>):</h4>
         <ul id="playerList" style="list-style:none; padding:0; text-align:left;"></ul>
 
-        <button id="acceptRulesBtn" onclick="toggleReady()" style="background:#2ecc71;">✅ ยอมรับกติกาและเตรียมพร้อม</button>
-        <button id="startGameBtn" onclick="startGame()" style="display:none; background:#e67e22;">▶️ เริ่มเกมเลย (สำหรับหัวห้อง)</button>
+        <button id="acceptRulesBtn" onclick="toggleReady()" style="background:#2ecc71;">✅ ยอมรับกติกาและพร้อมเล่น</button>
+        <button id="startGameBtn" onclick="startGame()" style="display:none; background:#e67e22;">▶️ เริ่มเกมเลย</button>
     </div>
 
     <!-- 3. หน้ากระดานเกม -->
     <div id="gameArea" style="display:none;">
-        <div id="bombTimer" class="bomb-alert" style="display:none;">💣 คุณมีไพ่ระเบิด! เหลือเวลา <span id="timerSec">30</span> วินาที!</div>
+        <div class="timer-badge">⏳ เวลาในตาของคุณ: <span id="turnTimer">20</span>s</div>
+        <div id="bombTimer" style="color:#ff3838; font-weight:bold; display:none;">💣 คุณมีไพ่ระเบิด! เหลือเวลา <span id="timerSec">30</span>s</div>
         
         <div style="background:#0097e6; padding:15px; border-radius:10px; max-width:500px; margin:auto;">
-            <h3>ไพ่กลางโต๊ะ</h3>
+            <h3>ไพ่กลางโต๊ะ (สะสมโทษ: <span id="stackPenalty" style="color:#ff4757; font-size:24px;">0</span> ใบ)</h3>
             <div id="topCard" class="uno-card black">?</div>
-            <p>ตาผู้เล่นปัจจุบัน: <h2 id="turnInfo" style="color:#f1c40f; margin:0;">-</h2></p>
+            <p>ตาปัจจุบัน: <h2 id="turnInfo" style="color:#f1c40f; margin:0;">-</h2></p>
         </div>
 
         <br>
-        <h3>ไพ่ในมือของคุณ (<span id="handCount">0</span>/25 ใบ)</h3>
+        <h3>ไพ่ในมือ (<span id="handCount">0</span>/25 ใบ)</h3>
         <div id="myHand"></div>
         <br>
-        <button onclick="drawCard()" style="width:auto; padding:10px 30px; background:#e67e22;">📥 จั่วไพ่ (บังคับ/เพิ่ม)</button>
+        <button onclick="playSelectedCards()" style="width:auto; padding:10px 20px; background:#2ecc71;">🃏 ลงไพ่ที่เลือก</button>
+        <button onclick="drawCard()" style="width:auto; padding:10px 20px; background:#e67e22;">📥 จั่วไพ่</button>
     </div>
 
-    <!-- 🎲 Popup มินิเกม 1: ดวลไว -->
-    <div id="quickDrawOverlay" class="overlay">
-        <h1 style="color:#f1c40f; font-size:40px;">🎲 มินิเกม: ดวลไว!</h1>
-        <p>กดปุ่มสีแดงให้เร็วที่สุด! คนช้าสุดจั่ว 2 ใบ!</p>
-        <button class="btn-quick" onclick="submitQuickDraw()">กด!</button>
-    </div>
-
-    <!-- 🧠 Popup มินิเกม 3: ทายใจสายสืบ -->
-    <div id="guessOverlay" class="overlay">
+    <!-- 🎲 Overlay เลือกสี Wild Card -->
+    <div id="wildOverlay" class="overlay">
         <div class="card-box">
-            <h3>🧠 คุณโดนบวกไพ่! ต้องการทายใจไหม?</h3>
-            <p>ทายถูก: เพื่อนถัดไปโดนข้ามตา<br>ทายผิด: โดนบวกเพิ่มอีก +2 ใบ!</p>
-            <select id="guessColor">
-                <option value="red">สีแดง</option><option value="yellow">สีเหลือง</option>
-                <option value="green">สีเขียว</option><option value="blue">สีฟ้า</option>
-            </select>
-            <button onclick="submitGuess(true)" style="background:#2ecc71;">🎯 ทายใจ!</button>
-            <button onclick="submitGuess(false)" style="background:#95a5a6;">❌ ไม่ทาย (รับโทษปกติ)</button>
+            <h3>🎨 เลือกสีที่ต้องการเปลี่ยน:</h3>
+            <button onclick="selectWildColor('red')" style="background:#e74c3c;">สีแดง</button>
+            <button onclick="selectWildColor('yellow')" style="background:#f1c40f; color:black;">สีเหลือง</button>
+            <button onclick="selectWildColor('green')" style="background:#2ecc71;">สีเขียว</button>
+            <button onclick="selectWildColor('blue')" style="background:#3498db;">สีฟ้า</button>
         </div>
+    </div>
+
+    <!-- ❓ Overlay ถามบลัฟ +2/+4 -->
+    <div id="plusAskOverlay" class="overlay">
+        <div class="card-box">
+            <h3 style="color:#ff4757;">⚠️ คุณกำลังโดนบวกสะสม!</h3>
+            <p>คุณมีไพ่ +2 หรือ +4 ในมือที่จะลงต่อสู้หรือไม่?</p>
+            <p style="font-size:12px; color:#aaa;">*(คำเตือน: ถ้าตอบว่า "มี" แต่ไม่มีจริง ถือว่าโกหก จะโดนทำโทษจั่วเพิ่ม +14 ใบทันที!)*</p>
+            <button onclick="answerPlusAsk(true)" style="background:#2ecc71;">มี! (ลงต่อ)</button>
+            <button onclick="answerPlusAsk(false)" style="background:#e74c3c;">ไม่มี (ยอมรับโทษจั่ว)</button>
+        </div>
+    </div>
+
+    <!-- 🔔 Popup กด UNO (เหลือ 1 ใบ) -->
+    <div id="unoOverlay" class="overlay">
+        <h2 style="color:#f1c40f;">เหลือไพ่ 1 ใบแล้ว!</h2>
+        <button class="btn-uno" onclick="clickUnoBtn('UNO')">กด UNO!<br>(<span id="unoTimer">5</span>s)</button>
+    </div>
+
+    <!-- 🏆 Popup กด UNO WIN (หมดมือ) -->
+    <div id="unoWinOverlay" class="overlay">
+        <h2 style="color:#2ecc71;">คุณทิ้งไพ่หมดมือแล้ว!</h2>
+        <button class="btn-uno" style="background:#2ecc71; color:white;" onclick="clickUnoBtn('WIN')">กด UNO WIN!<br>(<span id="winTimer">5</span>s)</button>
+    </div>
+
+    <!-- 🎲 Popup มินิเกม ดวลไว -->
+    <div id="quickDrawOverlay" class="overlay">
+        <h1 style="color:#f1c40f;">🎲 ดวลไว Quick Draw!</h1>
+        <button class="btn-uno" style="background:#e74c3c;" onclick="submitQuickDraw()">กด!</button>
+    </div>
+
+    <!-- 🏁 หน้าสรุปจบเกม & เปิดไพ่ทุกคน -->
+    <div id="gameOverArea" class="card-box" style="display:none; width:80%; max-width:600px;">
+        <h1 style="color:#f1c40f;">🎉 สรุปผลการแข่งขัน 🎉</h1>
+        <h2 id="winnerText" style="color:#2ecc71;"></h2>
+        <hr>
+        <h3>🔍 เปิดไพ่ในมือของผู้เล่นทุกคน:</h3>
+        <div id="allHandsView"></div>
+        <br>
+        <button onclick="location.reload()" style="background:#3498db;">🔄 กลับสู่หน้าหลัก</button>
     </div>
 
     <script>
         const socket = io();
-        let currentRoomId = '', isReady = false;
+        let currentRoomId = '', isReady = false, selectedIndexes = [];
 
         function createRoom() {
             const name = document.getElementById('playerName').value;
             const maxPlayers = document.getElementById('maxPlayers').value;
-            if(!name) return alert('ใส่ชื่อก่อนครับ');
+            if(!name) return alert('กรุณากรอกชื่อ');
             socket.emit('createRoom', { name, maxPlayers });
         }
 
@@ -123,13 +163,15 @@
 
         function toggleReady() {
             isReady = !isReady;
-            document.getElementById('acceptRulesBtn').innerText = isReady ? "⏳ ยกเลิกการเตรียมพร้อม" : "✅ ยอมรับกติกาและเตรียมพร้อม";
+            document.getElementById('acceptRulesBtn').innerText = isReady ? "⏳ ยกเลิกพร้อม" : "✅ ยอมรับกติกาและพร้อมเล่น";
             document.getElementById('acceptRulesBtn').style.background = isReady ? "#e74c3c" : "#2ecc71";
             socket.emit('playerReady', { roomId: currentRoomId, isReady });
         }
 
-        function startGame() { socket.emit('startGame', { roomId: currentRoomId }); }
-        function drawCard() { socket.emit('drawCard', { roomId: currentRoomId }); }
+        function startGame() {
+            const target = document.getElementById('winnerTarget').value;
+            socket.emit('startGame', { roomId: currentRoomId, winnerTarget: parseInt(target) });
+        }
 
         socket.on('updateRoom', (room) => {
             currentRoomId = room.id;
@@ -146,10 +188,11 @@
                 if(p.id === socket.id && p.isHost) isHost = true;
                 if(!p.isReady) allReady = false;
                 const li = document.createElement('li');
-                li.innerHTML = `${p.isHost ? '👑' : '👤'} ${p.name} ${p.isReady ? '<b style="color:#2ecc71">[ยอมรับกติกาแล้ว]</b>' : '<span style="color:#aaa">[รอยอมรับ]</span>'}`;
+                li.innerHTML = `${p.isHost ? '👑' : '👤'} ${p.name} ${p.isReady ? '<b style="color:#2ecc71">[พร้อม]</b>' : '<span style="color:#aaa">[รอ]</span>'}`;
                 list.appendChild(li);
             });
 
+            document.getElementById('hostSettings').style.display = isHost ? 'block' : 'none';
             document.getElementById('startGameBtn').style.display = (isHost && allReady && room.players.length >= 2) ? 'inline-block' : 'none';
         });
 
@@ -163,48 +206,118 @@
 
         function updateGameState(state) {
             document.getElementById('turnInfo').innerText = state.currentPlayerName;
-            
-            // อัปเดตไพ่กลาง
+            document.getElementById('stackPenalty').innerText = state.stackedPenalty;
+
             const top = document.getElementById('topCard');
             top.className = `uno-card ${state.topCard.color}`;
             top.innerText = state.topCard.value;
 
-            // อัปเดตไพ่ในมือ
             const myHandDiv = document.getElementById('myHand');
             myHandDiv.innerHTML = '';
             document.getElementById('handCount').innerText = state.myHand.length;
 
+            selectedIndexes = [];
             state.myHand.forEach((card, idx) => {
                 const c = document.createElement('div');
                 c.className = `uno-card ${card.color}`;
                 c.innerText = card.isBomb ? '💣' : card.value;
-                c.onclick = () => socket.emit('playCard', { roomId: currentRoomId, cardIndex: idx });
+                c.onclick = () => {
+                    if(c.classList.contains('selected')) {
+                        c.classList.remove('selected');
+                        selectedIndexes = selectedIndexes.filter(i => i !== idx);
+                    } else {
+                        c.classList.add('selected');
+                        selectedIndexes.push(idx);
+                    }
+                };
                 myHandDiv.appendChild(c);
             });
 
-            // เช็คไพ่ระเบิด
-            const hasBomb = state.myHand.some(c => c.isBomb);
-            document.getElementById('bombTimer').style.display = hasBomb ? 'block' : 'none';
+            document.getElementById('bombTimer').style.display = state.myHand.some(c => c.isBomb) ? 'block' : 'none';
         }
 
-        // มินิเกม 1: Quick Draw
+        function playSelectedCards() {
+            if(selectedIndexes.length === 0) return alert('เลือกไพ่อย่างน้อย 1 ใบ');
+            socket.emit('playCard', { roomId: currentRoomId, cardIndexes: selectedIndexes });
+        }
+
+        function drawCard() { socket.emit('drawCard', { roomId: currentRoomId }); }
+
+        // Wild Color Overlay
+        socket.on('chooseWildColor', () => { document.getElementById('wildOverlay').style.display = 'flex'; });
+        function selectWildColor(color) {
+            document.getElementById('wildOverlay').style.display = 'none';
+            socket.emit('setWildColor', { roomId: currentRoomId, color });
+        }
+
+        // Plus Ask Overlay
+        socket.on('askPlusCards', () => { document.getElementById('plusAskOverlay').style.display = 'flex'; });
+        function answerPlusAsk(hasPlus) {
+            document.getElementById('plusAskOverlay').style.display = 'none';
+            socket.emit('answerPlusAsk', { roomId: currentRoomId, hasPlus });
+        }
+
+        // UNO Overlays
+        let unoInterval;
+        socket.on('triggerUnoBtn', (type) => {
+            const overlay = type === 'UNO' ? document.getElementById('unoOverlay') : document.getElementById('unoWinOverlay');
+            const timerSpan = type === 'UNO' ? document.getElementById('unoTimer') : document.getElementById('winTimer');
+            overlay.style.display = 'flex';
+            
+            let sec = 5;
+            timerSpan.innerText = sec;
+            clearInterval(unoInterval);
+            unoInterval = setInterval(() => {
+                sec--;
+                timerSpan.innerText = sec;
+                if(sec <= 0) {
+                    clearInterval(unoInterval);
+                    overlay.style.display = 'none';
+                    socket.emit('unoTimeout', { roomId: currentRoomId, type });
+                }
+            }, 1000);
+        });
+
+        function clickUnoBtn(type) {
+            clearInterval(unoInterval);
+            document.getElementById('unoOverlay').style.display = 'none';
+            document.getElementById('unoWinOverlay').style.display = 'none';
+            socket.emit('unoSuccess', { roomId: currentRoomId, type });
+        }
+
+        // Quick Draw
         socket.on('triggerQuickDraw', () => { document.getElementById('quickDrawOverlay').style.display = 'flex'; });
         function submitQuickDraw() {
             document.getElementById('quickDrawOverlay').style.display = 'none';
             socket.emit('quickDrawClick', { roomId: currentRoomId });
         }
 
-        // มินิเกม 3: ทายใจ
-        socket.on('triggerGuess', () => { document.getElementById('guessOverlay').style.display = 'flex'; });
-        function submitGuess(willGuess) {
-            document.getElementById('guessOverlay').style.display = 'none';
-            const color = document.getElementById('guessColor').value;
-            socket.emit('answerGuess', { roomId: currentRoomId, willGuess, guessedColor: color });
-        }
-
+        socket.on('turnTimerSec', (sec) => { document.getElementById('turnTimer').innerText = sec; });
         socket.on('bombCountdown', (sec) => { document.getElementById('timerSec').innerText = sec; });
         socket.on('errorMsg', (msg) => alert(msg));
-        socket.on('gameOver', (msg) => { alert(msg); location.reload(); });
+
+        // สรุปจบเกม & ดูไพ่ทุกคน
+        socket.on('gameOverShowAll', ({ winnerNames, playersHands }) => {
+            document.getElementById('gameArea').style.display = 'none';
+            document.getElementById('gameOverArea').style.display = 'inline-block';
+            document.getElementById('winnerText').innerText = `🏆 ผู้ชนะ: ${winnerNames.join(', ')}`;
+
+            const handsDiv = document.getElementById('allHandsView');
+            handsDiv.innerHTML = '';
+            playersHands.forEach(p => {
+                const box = document.createElement('div');
+                box.className = 'other-hand';
+                box.innerHTML = `<b>👤 ${p.name} (เหลือ ${p.hand.length} ใบ):</b><br>`;
+                p.hand.forEach(card => {
+                    const c = document.createElement('div');
+                    c.className = `uno-card ${card.color}`;
+                    c.style.width = '40px'; c.style.height = '60px'; c.style.lineHeight = '60px'; c.style.fontSize = '12px';
+                    c.innerText = card.value;
+                    box.appendChild(c);
+                });
+                handsDiv.appendChild(box);
+            });
+        });
     </script>
 </body>
 </html>
